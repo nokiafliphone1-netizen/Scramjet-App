@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>go</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;color:#bbb;font:14px system-ui,sans-serif}
+  iframe{position:fixed;inset:0;width:100%;height:100%;border:0;background:#000}
+  #m{position:fixed;inset:0;display:grid;place-items:center;z-index:2;background:#000;transition:opacity .3s;text-align:center;padding:20px}
+  #m.off{opacity:0;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="m">Starting Scramjet&hellip;</div>
+<iframe id="f" allow="fullscreen; autoplay; clipboard-read; clipboard-write; gamepad; pointer-lock; microphone; camera"></iframe>
+<script>
+/*
+  go.html v2 - goes in the same folder as index.html in your Scramjet-App.
+    /go.html#<encoded address>   opens that address through Scramjet
+    /go.html?reset               clears a stuck service worker and cache, then returns here
+*/
+(function () {
+  var f = document.getElementById('f'), m = document.getElementById('m');
+  function say(t) { m.className = ''; m.textContent = t; }
+  function target() { try { return decodeURIComponent(location.hash.slice(1)); } catch (e) { return ''; } }
+
+  // ----- reset mode -----
+  if (/[?&]reset\b/.test(location.search)) {
+    say('Resetting service worker\u2026');
+    var jobs = [];
+    if (navigator.serviceWorker) jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+      return Promise.all(rs.map(function (r) { return r.unregister(); }));
+    }));
+    if (window.caches) jobs.push(caches.keys().then(function (ks) {
+      return Promise.all(ks.map(function (k) { return caches.delete(k); }));
+    }));
+    try { sessionStorage.clear(); } catch (e) {}
+    Promise.all(jobs).catch(function () {}).then(function () {
+      say('Reset done. Reloading\u2026');
+      setTimeout(function () { location.replace(location.pathname); }, 800);
+    });
+    return;
+  }
+
+  function controlled() {
+    try { return !!f.contentWindow.navigator.serviceWorker.controller; } catch (e) { return false; }
+  }
+  function submit(t, input, form) {
+    input.value = t;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    setTimeout(function () {
+      m.className = 'off';
+      if (form && form.requestSubmit) form.requestSubmit();
+      else if (form) form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+      else say('Could not find the Scramjet form on your index page.');
+    }, 400);
+  }
+  function run() {
+    var t = target(), d;
+    try { d = f.contentDocument; } catch (e) { return; }
+    if (!d) return;
+    if (!t) { m.className = 'off'; return; }
+    var input = d.getElementById('sj-address') ||
+      d.querySelector('input[type=text],input[type=search],input[type=url],input:not([type])');
+    if (!input) { say('Could not find the Scramjet address box on your index page.'); return; }
+    var form = input.form || input.closest('form');
+    // wait (up to ~6s) for the service worker to take control; if it never does, reload once
+    var tries = 0;
+    (function wait() {
+      if (controlled()) { try { sessionStorage.removeItem('sjReloaded'); } catch (e) {} submit(t, input, form); return; }
+      if (tries++ < 20) { setTimeout(wait, 300); return; }
+      var done = false; try { done = sessionStorage.getItem('sjReloaded'); } catch (e) {}
+      if (!done) {
+        try { sessionStorage.setItem('sjReloaded', '1'); } catch (e) {}
+        say('Finishing setup\u2026');
+        try { f.contentWindow.location.reload(); } catch (e) { f.src = '/'; }
+        return;
+      }
+      say('The service worker is not taking control. Open /go.html?reset once, then try again.');
+    })();
+  }
+  f.addEventListener('load', run);
+  addEventListener('hashchange', function () {
+    say('Opening\u2026');
+    try { f.contentWindow.location.reload(); } catch (e) { f.src = '/'; }
+  });
+  f.src = '/';
+})();
+</script>
+</body>
+</html>
